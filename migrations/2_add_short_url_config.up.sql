@@ -1,0 +1,1 @@
+INSERT INTO SystemParam(Key, Value) VALUES('UrlPrefix', 'http://127.0.0.1:8090/');

@@ -1,0 +1,1 @@
+DELETE FROM SystemParam WHERE Key = 'UrlPrefix';
