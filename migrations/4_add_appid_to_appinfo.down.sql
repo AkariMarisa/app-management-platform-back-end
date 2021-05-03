@@ -1,0 +1,1 @@
+ALTER TABLE AppInfo DROP COLUMN AppId;

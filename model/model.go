@@ -3,6 +3,7 @@ package model
 // 应用信息, (名称 + 包名 + 类型)
 type AppInfo struct {
 	Id            uint32          `json:"id"`
+	AppId         string          `json:"appId"`                           // UniApp 下的 appId
 	Name          string          `json:"name" validate:"required"`        // 应用名称
 	PackageName   string          `json:"packageName" validate:"required"` // 应用包名
 	Type          AppType         `json:"type" validate:"required"`        // 应用类型, (Android: 安卓, Apple: 苹果)

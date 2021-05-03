@@ -42,6 +42,25 @@ const (
 		AND Type = :appType
 	ORDER BY Id DESC
 	`
+	GetAppInfoByUniApp string = `
+	SELECT
+		Id,
+		Name,
+		PackageName,
+		Type,
+		Icon,
+		ShortUrl,
+		VersionName,
+		VersionCode,
+		Env,
+		FileSize,
+		CreatedAt
+	FROM AppInfo
+	WHERE Name = :name
+		AND AppId = :appId
+		AND Type = :appType
+	ORDER BY Id DESC
+	`
 	GetAppInfoByUrl string = `
 	SELECT
 		au.Id,
@@ -99,6 +118,7 @@ const (
 	`
 	InsertAppInfoSQL string = `
 	INSERT INTO AppInfo (
+		AppId,
 		Name,
 		PackageName,
 		Type,
@@ -110,6 +130,7 @@ const (
 		FileSize,
 		CreatedAt
 	) VALUES (
+		:appId,
 		:name,
 		:packageName,
 		:type,
@@ -170,12 +191,14 @@ const (
 		MinimumOSVersion,
 		UpdateLog,
 		IsOnlineVersion,
+		FileName,
 		FileSize,
 		CreatedAt
 	FROM AppUpdate
-	WHERE Id != :appUpdateId
-		AND AppInfoId = :appInfoId
+	WHERE AppInfoId = :appInfoId
 		AND IsOnlineVersion = 1
+		AND VersionName != :versionName
+		AND VersionCode != :versionCode
 	ORDER BY Id DESC
 	`
 )

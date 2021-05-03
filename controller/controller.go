@@ -612,6 +612,7 @@ func CreateAppInfo(ctx *fiber.Ctx) error {
 		return ctx.Status(500).SendString(err.Error())
 	}
 
+	appId := form.Value["appInfo.appId"][0]
 	name := form.Value["appInfo.name"][0]
 	packageName := form.Value["appInfo.packageName"][0]
 	appType := form.Value["appInfo.type"][0]
@@ -689,6 +690,7 @@ func CreateAppInfo(ctx *fiber.Ctx) error {
 
 	nowStr := time.Now().Format("2006-01-02 15:04:05")
 	insertAppInfoResult, err := insertAppInfoStmt.Exec(
+		sql.Named("appId", appId),
 		sql.Named("name", name),
 		sql.Named("packageName", packageName),
 		sql.Named("type", appType),
@@ -979,10 +981,66 @@ func ClientRetrieveAppInfo(ctx *fiber.Ctx) error {
 	return ctx.JSON(appInfo)
 }
 
+// 客户端获取应用信息
+// 请求参数:
+// name: 应用名称
+// appId: AppId
+// appType: 应用类型
+func ClientRetrieveAppInfoUniApp(ctx *fiber.Ctx) error {
+
+	name := ctx.Query("name")
+	if strings.TrimSpace(name) == "" {
+		return ctx.Status(400).SendString("name不能为空")
+	}
+
+	appId := ctx.Query("appId")
+	if strings.TrimSpace(appId) == "" {
+		return ctx.Status(400).SendString("appId不能为空")
+	}
+
+	appType := ctx.Query("appType")
+	if strings.TrimSpace(appType) == "" {
+		return ctx.Status(400).SendString("appType不能为空")
+	}
+
+	conn := db.GetConnection()
+
+	stmt, err := conn.Prepare(db.GetAppInfoByUniApp)
+	if err != nil {
+		return ctx.Status(500).SendString(err.Error())
+	}
+
+	defer stmt.Close()
+
+	row := stmt.QueryRow(
+		sql.Named("name", name),
+		sql.Named("appId", appId),
+		sql.Named("appType", appType),
+	)
+
+	var appInfo model.AppInfo
+	row.Scan(
+		&appInfo.Id,
+		&appInfo.Name,
+		&appInfo.PackageName,
+		&appInfo.Type,
+		&appInfo.Icon,
+		&appInfo.ShortUrl,
+		&appInfo.VersionName,
+		&appInfo.VersionCode,
+		&appInfo.Env,
+		&appInfo.FileSize,
+		&appInfo.CreatedAt,
+	)
+
+	return ctx.JSON(appInfo)
+}
+
 // 客户端检查应用更新
 // 请求参数:
 // appInfoId: 应用信息ID
-// appUpdateId: 应用更新版本信息ID
+// versionName: 版本名称
+// versionCode: 版本代号
 func ClientCheckUpdate(ctx *fiber.Ctx) error {
 
 	appInfoId := ctx.Query("appInfoId")
@@ -991,15 +1049,28 @@ func ClientCheckUpdate(ctx *fiber.Ctx) error {
 		return ctx.Status(400).SendString("appInfoId不能为空")
 	}
 
-	appUpdateId := ctx.Query("appUpdateId")
+	versionName := ctx.Query("versionName")
 
-	if strings.TrimSpace(appUpdateId) == "" {
-		return ctx.Status(400).SendString("appInfoId不能为空")
+	if strings.TrimSpace(versionName) == "" {
+		return ctx.Status(400).SendString("versionName不能为空")
+	}
+
+	versionCode := ctx.Query("versionCode")
+
+	if strings.TrimSpace(versionCode) == "" {
+		return ctx.Status(400).SendString("versionCode不能为空")
 	}
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(db.GetNewerVersion)
+	tx, err := conn.Begin()
+	if err != nil {
+		return ctx.Status(500).SendString(err.Error())
+	}
+
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(db.GetNewerVersion)
 	if err != nil {
 		return ctx.Status(500).SendString(err.Error())
 	}
@@ -1008,16 +1079,54 @@ func ClientCheckUpdate(ctx *fiber.Ctx) error {
 
 	row := stmt.QueryRow(
 		sql.Named("appInfoId", appInfoId),
-		sql.Named("appUpdateId", appUpdateId),
+		sql.Named("versionName", versionName),
+		sql.Named("versionCode", versionCode),
 	)
 
 	var appUpdate model.AppUpdate
-	row.Scan(&appUpdate)
+	row.Scan(
+		&appUpdate.Id,
+		&appUpdate.VersionName,
+		&appUpdate.VersionCode,
+		&appUpdate.Env,
+		&appUpdate.ProvisionedDevices,
+		&appUpdate.MinimumOSVersion,
+		&appUpdate.UpdateLog,
+		&appUpdate.IsOnlineVersion,
+		&appUpdate.FileName,
+		&appUpdate.FileSize,
+		&appUpdate.CreatedAt,
+	)
 
 	// 如果应用没有上线的更新版本, 则返回空
 	if appUpdate.Id == 0 {
 		return ctx.SendString("当前应用暂无新版本")
 	}
 
-	return ctx.SendFile(fmt.Sprintf("%s/%s", config.AppFileStorePath, appUpdate.FileName))
+	err = ctx.Download(fmt.Sprintf("%s/%s", config.AppFileStorePath, appUpdate.FileName))
+	if err != nil {
+		return err
+	}
+
+	// 更新下载次数
+	updateStmt, err := tx.Prepare(db.InsertDownloadRecord)
+	if err != nil {
+		return ctx.Status(500).SendString(err.Error())
+	}
+
+	defer updateStmt.Close()
+
+	_, err = updateStmt.Exec(
+		sql.Named("appInfoId", appInfoId),
+		sql.Named("createdAt", time.Now().Format("2006-01-02 15:04:05")),
+	)
+	if err != nil {
+		return ctx.Status(500).SendString(err.Error())
+	}
+
+	if err := tx.Commit(); err != nil {
+		return ctx.Status(500).SendString(err.Error())
+	}
+
+	return nil
 }

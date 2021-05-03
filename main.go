@@ -102,6 +102,8 @@ func registerRoutes(app *fiber.App) {
 	clientApi := api.Group("/client")
 	// 客户端获取应用信息
 	clientApi.Get("/appInfo", controller.ClientRetrieveAppInfo)
+	// uniapp 客户端获取应用信息
+	clientApi.Get("/appInfo/uniapp", controller.ClientRetrieveAppInfoUniApp)
 	// 客户端检查应用更新
 	clientApi.Get("/updates", controller.ClientCheckUpdate)
 }
