@@ -62,3 +62,17 @@ type SystemParam struct {
 	Key   string `json:"key" validate:"required"`
 	Value string `json:"value"`
 }
+
+// 用户表
+type User struct {
+	Id       uint32 `json:"id"`
+	Username string `json:"username" validate:"required"`
+	Password string `json:"password" validate:"required"`
+}
+
+// Token 表
+type Token struct {
+	Id    uint32 `json:"id"`
+	Token string `json:"token" validate:"required"`
+	User  *User  `json:"user" validate:"dive"`
+}

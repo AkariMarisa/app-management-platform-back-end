@@ -3,6 +3,7 @@ package controller
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -10,10 +11,144 @@ import (
 	"codelodon.com/akarimarisa/app-management-platform-back-end/config"
 	"codelodon.com/akarimarisa/app-management-platform-back-end/db"
 	"codelodon.com/akarimarisa/app-management-platform-back-end/model"
+	"codelodon.com/akarimarisa/app-management-platform-back-end/util"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	gonanoid "github.com/matoous/go-nanoid/v2"
+	"golang.org/x/crypto/bcrypt"
 )
+
+// 登陆
+// 请求参数:
+// username: 用户名
+// password: 密码
+func Login(ctx *fiber.Ctx) error {
+
+	username := ctx.Query("username")
+
+	if strings.TrimSpace(username) == "" {
+		return ctx.Status(400).SendString("username不能为空")
+	}
+
+	password := ctx.Query("password")
+
+	if strings.TrimSpace(password) == "" {
+		return ctx.Status(400).SendString("password不能为空")
+	}
+
+	conn := db.GetConnection()
+
+	tx, _ := conn.Begin()
+
+	defer tx.Rollback()
+
+	stmt, _ := tx.Prepare(db.GetUserByName)
+
+	defer stmt.Close()
+
+	row := stmt.QueryRow(
+		sql.Named("username", username),
+	)
+
+	user := model.User{}
+	row.Scan(&user.Id, &user.Username, &user.Password)
+
+	if user.Id == 0 {
+		return ctx.Status(401).SendString("用户名不存在")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		return ctx.Status(401).SendString("用户名或密码错误")
+	}
+
+	// 登陆成功, 生成 Token
+	token := util.GenerateSecureToken(128)
+
+	deleteStmt, _ := tx.Prepare(db.DeleteUserOldTokens)
+
+	defer deleteStmt.Close()
+
+	deleteStmt.Exec(
+		sql.Named("userId", user.Id),
+	)
+
+	insertStmt, _ := tx.Prepare(db.InsertToken)
+
+	defer insertStmt.Close()
+
+	insertStmt.Exec(
+		sql.Named("token", token),
+		sql.Named("userId", user.Id),
+	)
+
+	tx.Commit()
+
+	result := make(map[string]string)
+	result["token"] = token
+	result["userId"] = strconv.Itoa(int(user.Id))
+
+	return ctx.JSON(result)
+}
+
+// 修改用户密码
+// 请求参数:
+// userId: 用户ID
+// newPassword: 新密码
+// reNewPassword: 重复输入的新密码
+func ChangeUserPassword(ctx *fiber.Ctx) error {
+
+	userId := ctx.Query("userId")
+
+	if strings.TrimSpace(userId) == "" {
+		return ctx.Status(400).SendString("userId不能为空")
+	}
+
+	newPassword := ctx.Query("newPassword")
+
+	if strings.TrimSpace(newPassword) == "" {
+		return ctx.Status(400).SendString("newPassword不能为空")
+	}
+
+	reNewPassword := ctx.Query("reNewPassword")
+
+	if strings.TrimSpace(reNewPassword) == "" {
+		return ctx.Status(400).SendString("reNewPassword不能为空")
+	}
+
+	if newPassword != reNewPassword {
+		return ctx.Status(400).SendString("两次密码不一致")
+	}
+
+	// 加密密码
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+
+	conn := db.GetConnection()
+
+	tx, _ := conn.Begin()
+
+	defer tx.Rollback()
+
+	stmt, _ := tx.Prepare(db.UpdateUserPassword)
+
+	defer stmt.Close()
+
+	stmt.Exec(
+		sql.Named("id", userId),
+		sql.Named("password", string(hashedPassword)),
+	)
+
+	deleteStmt, _ := tx.Prepare(db.DeleteUserOldTokens)
+
+	defer deleteStmt.Close()
+
+	deleteStmt.Exec(
+		sql.Named("userId", userId),
+	)
+
+	tx.Commit()
+
+	return ctx.SendString("修改成功")
+}
 
 // 获取系统参数
 // 请求参数:
@@ -33,17 +168,11 @@ func GetSystemParam(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(querySQL + conditionSQL + orderSQL)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := conn.Prepare(querySQL + conditionSQL + orderSQL)
 
 	defer stmt.Close()
 
-	rows, err := stmt.Query(params...)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	rows, _ := stmt.Query(params...)
 
 	defer rows.Close()
 
@@ -78,36 +207,22 @@ func UpdateSystemParam(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	tx, err := conn.Begin()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx, _ := conn.Begin()
 
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(db.UpdateSystemParamByKey)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := tx.Prepare(db.UpdateSystemParamByKey)
 
 	defer stmt.Close()
 
-	result, err := stmt.Exec(
+	result, _ := stmt.Exec(
 		sql.Named("key", key),
 		sql.Named("value", value),
 	)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
 
-	if err := tx.Commit(); err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx.Commit()
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	rowsAffected, _ := result.RowsAffected()
 
 	return ctx.SendString(fmt.Sprintf("已更新%d条记录", rowsAffected))
 }
@@ -156,7 +271,6 @@ func GetAppInfoList(ctx *fiber.Ctx) error {
 		types := strings.Split(appType, ",")
 
 		conditionSQL += "AND ai.Type IN (?" + strings.Repeat(",?", len(types)-1) + ")"
-		// params = append(params, sql.Named("type", types))
 		for _, t := range types {
 			params = append(params, t)
 		}
@@ -164,17 +278,11 @@ func GetAppInfoList(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(querySQL + conditionSQL + orderSQL)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := conn.Prepare(querySQL + conditionSQL + orderSQL)
 
 	defer stmt.Close()
 
-	rows, err := stmt.Query(params...)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	rows, _ := stmt.Query(params...)
 
 	defer rows.Close()
 
@@ -226,10 +334,7 @@ func GetAppInfoById(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(db.GetAppInfoById)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := conn.Prepare(db.GetAppInfoById)
 
 	defer stmt.Close()
 
@@ -253,6 +358,68 @@ func GetAppInfoById(ctx *fiber.Ctx) error {
 	return ctx.JSON(appInfo)
 }
 
+// 删除应用
+// 请求参数:
+// appInfoId: 应用信息ID
+func AbandonApp(ctx *fiber.Ctx) error {
+
+	appInfoId := ctx.Query("appInfoId")
+
+	if strings.TrimSpace(appInfoId) == "" {
+		return ctx.Status(400).SendString("appInfoId不能为空")
+	}
+
+	conn := db.GetConnection()
+
+	tx, _ := conn.Begin()
+
+	defer tx.Rollback()
+
+	// 获取所有应用文件名称
+
+	stmt, _ := tx.Prepare(db.GetAppFiles)
+
+	defer stmt.Close()
+
+	rows, _ := stmt.Query(
+		sql.Named("appInfoId", appInfoId),
+	)
+
+	var fileNames []string
+	for rows.Next() {
+		var fileName string
+
+		rows.Scan(&fileName)
+
+		fileNames = append(fileNames, fileName)
+	}
+
+	// 删除应用更新版本记录
+
+	deleteAppUpdateStmt, _ := tx.Prepare(db.DeleteAppUpdatesByAppInfoId)
+
+	defer deleteAppUpdateStmt.Close()
+
+	deleteAppUpdateStmt.Exec(sql.Named("appInfoId", appInfoId))
+
+	// 删除应用记录
+
+	deleteAppInfoStmt, _ := tx.Prepare(db.DeleteAppInfoById)
+
+	defer deleteAppInfoStmt.Close()
+
+	deleteAppInfoStmt.Exec(sql.Named("id", appInfoId))
+
+	// 删除应用文件
+	for _, fileName := range fileNames {
+		os.Remove(fmt.Sprintf("%s/%s", config.GetConfiguration().AppFileStorePath, fileName))
+	}
+
+	tx.Commit()
+
+	return ctx.SendString("under constructions...")
+}
+
 // 根据短URL获取应用信息
 // 请求参数:
 // shortUrl: 应用短URL
@@ -266,10 +433,7 @@ func GetAppInfoByUrl(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(db.GetAppInfoByUrl)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := conn.Prepare(db.GetAppInfoByUrl)
 
 	defer stmt.Close()
 
@@ -318,17 +482,11 @@ func GetAppUpdateList(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(db.GetAppUpdates)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := conn.Prepare(db.GetAppUpdates)
 
 	defer stmt.Close()
 
-	rows, err := stmt.Query(sql.Named("appInfoId", appInfoId))
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	rows, _ := stmt.Query(sql.Named("appInfoId", appInfoId))
 
 	defer rows.Close()
 
@@ -373,10 +531,7 @@ func GetAppDownloadCount(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(querySQL)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := conn.Prepare(querySQL)
 
 	defer stmt.Close()
 
@@ -404,36 +559,22 @@ func UpdateAppUpdateLog(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	tx, err := conn.Begin()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx, _ := conn.Begin()
 
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(db.UpdateLog)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := tx.Prepare(db.UpdateLog)
 
 	defer stmt.Close()
 
-	result, err := stmt.Exec(
+	result, _ := stmt.Exec(
 		sql.Named("appUpdateId", appUpdateId),
 		sql.Named("log", log),
 	)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
 
-	if err := tx.Commit(); err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx.Commit()
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	rowsAffected, _ := result.RowsAffected()
 
 	return ctx.SendString(fmt.Sprintf("已更新%d条记录", rowsAffected))
 }
@@ -458,47 +599,27 @@ func MarkAppUpdateOnline(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	tx, err := conn.Begin()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx, _ := conn.Begin()
 
 	defer tx.Rollback()
 
 	// 首先将所有应用对应更新版本切换到下线
-	offlineStmt, err := tx.Prepare(db.OfflineSQL)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	offlineStmt, _ := tx.Prepare(db.OfflineSQL)
 
 	defer offlineStmt.Close()
 
-	_, err = offlineStmt.Exec(sql.Named("appInfoId", appInfoId))
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	offlineStmt.Exec(sql.Named("appInfoId", appInfoId))
 
 	// 然后再更新对应版本的上线状态
-	onlineStmt, err := tx.Prepare(db.OnlineSQL)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	onlineStmt, _ := tx.Prepare(db.OnlineSQL)
 
 	defer onlineStmt.Close()
 
-	onlineResult, err := onlineStmt.Exec(sql.Named("appUpdateId", appUpdateId))
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	onlineResult, _ := onlineStmt.Exec(sql.Named("appUpdateId", appUpdateId))
 
-	if err := tx.Commit(); err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx.Commit()
 
-	rowsAffected, err := onlineResult.RowsAffected()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	rowsAffected, _ := onlineResult.RowsAffected()
 
 	return ctx.SendString(fmt.Sprintf("已更新%d条记录", rowsAffected))
 }
@@ -530,10 +651,7 @@ func CheckAppInfoExsits(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(db.GetAppInfoByPackageInfo)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := conn.Prepare(db.GetAppInfoByPackageInfo)
 
 	defer stmt.Close()
 
@@ -563,20 +681,14 @@ func CheckAppInfoExsits(ctx *fiber.Ctx) error {
 
 func generateShortUrl() (string, error) {
 
-	id, err := gonanoid.Generate("abcdefghijklmnopqrstuvwxyz", 4)
-	if err != nil {
-		return "", err
-	}
+	id, _ := gonanoid.Generate("abcdefghijklmnopqrstuvwxyz", 4)
 
 	// 首先生成一个短链接给前端展示用
 	// 每次生成一个短链接时, 也要到数据库里查一下, 如果存在的话, 需要重新生成
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(db.CheckShortUrlExists)
-	if err != nil {
-		return "", err
-	}
+	stmt, _ := conn.Prepare(db.CheckShortUrlExists)
 
 	defer stmt.Close()
 
@@ -595,10 +707,7 @@ func generateShortUrl() (string, error) {
 // 生成短链接
 func GenerateShortUrl(ctx *fiber.Ctx) error {
 
-	shortUrl, err := generateShortUrl()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	shortUrl, _ := generateShortUrl()
 
 	return ctx.SendString(shortUrl)
 
@@ -607,10 +716,7 @@ func GenerateShortUrl(ctx *fiber.Ctx) error {
 // 新增应用(第一次上传应用)
 func CreateAppInfo(ctx *fiber.Ctx) error {
 
-	form, err := ctx.MultipartForm()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	form, _ := ctx.MultipartForm()
 
 	appId := form.Value["appInfo.appId"][0]
 	name := form.Value["appInfo.name"][0]
@@ -646,10 +752,7 @@ func CreateAppInfo(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	tx, err := conn.Begin()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx, _ := conn.Begin()
 
 	defer tx.Rollback()
 
@@ -664,10 +767,7 @@ func CreateAppInfo(ctx *fiber.Ctx) error {
 	// 后端一样先检测有没有, 如果有则一样提醒
 
 	// 检查前端传过来的短链接是否已存在
-	checkShortUrlStmt, err := tx.Prepare(db.CheckShortUrlExists)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	checkShortUrlStmt, _ := tx.Prepare(db.CheckShortUrlExists)
 
 	defer checkShortUrlStmt.Close()
 
@@ -681,15 +781,12 @@ func CreateAppInfo(ctx *fiber.Ctx) error {
 	}
 
 	// 保存应用信息
-	insertAppInfoStmt, err := tx.Prepare(db.InsertAppInfoSQL)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	insertAppInfoStmt, _ := tx.Prepare(db.InsertAppInfoSQL)
 
 	defer insertAppInfoStmt.Close()
 
 	nowStr := time.Now().Format("2006-01-02 15:04:05")
-	insertAppInfoResult, err := insertAppInfoStmt.Exec(
+	insertAppInfoResult, _ := insertAppInfoStmt.Exec(
 		sql.Named("appId", appId),
 		sql.Named("name", name),
 		sql.Named("packageName", packageName),
@@ -702,25 +799,16 @@ func CreateAppInfo(ctx *fiber.Ctx) error {
 		sql.Named("fileSize", appFile.Size),
 		sql.Named("createdAt", nowStr),
 	)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
 
-	appInfoId, err := insertAppInfoResult.LastInsertId()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	appInfoId, _ := insertAppInfoResult.LastInsertId()
 
 	// 保存应用更新版本信息
-	insertAppUpdateStmt, err := tx.Prepare(db.InsertAppUpdateSQL)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	insertAppUpdateStmt, _ := tx.Prepare(db.InsertAppUpdateSQL)
 
 	defer insertAppUpdateStmt.Close()
 
 	localFileName := fmt.Sprintf("%s.%s", uuid.NewString(), fileExtensionName)
-	_, err = insertAppUpdateStmt.Exec(
+	insertAppUpdateStmt.Exec(
 		sql.Named("versionName", versionName),
 		sql.Named("versionCode", versionCode),
 		sql.Named("env", env),
@@ -732,18 +820,11 @@ func CreateAppInfo(ctx *fiber.Ctx) error {
 		sql.Named("appInfoId", appInfoId),
 		sql.Named("fileName", localFileName),
 	)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
 
 	// 最后保存应用文件到本地
-	if err := ctx.SaveFile(appFile, fmt.Sprintf("%s/%s", config.AppFileStorePath, localFileName)); err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	ctx.SaveFile(appFile, fmt.Sprintf("%s/%s", config.GetConfiguration().AppFileStorePath, localFileName))
 
-	if err := tx.Commit(); err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx.Commit()
 
 	return ctx.SendString(strconv.Itoa(int(appInfoId)))
 }
@@ -753,10 +834,7 @@ func CreateAppInfo(ctx *fiber.Ctx) error {
 // appUpdate: 应用更新版本信息
 func UpdateApp(ctx *fiber.Ctx) error {
 
-	form, err := ctx.MultipartForm()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	form, _ := ctx.MultipartForm()
 
 	appInfoId := form.Value["appInfo.id"][0]
 
@@ -787,37 +865,25 @@ func UpdateApp(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	tx, err := conn.Begin()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx, _ := conn.Begin()
 
 	defer tx.Rollback()
 
 	// 首先将所有一你敢用对应更新版本切换到下线
-	offlineStmt, err := tx.Prepare(db.OfflineSQL)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	offlineStmt, _ := tx.Prepare(db.OfflineSQL)
 
 	defer offlineStmt.Close()
 
-	_, err = offlineStmt.Exec(sql.Named("appInfoId", appInfoId))
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	offlineStmt.Exec(sql.Named("appInfoId", appInfoId))
 
 	// 然后插入新的应用更新版本信息
-	insertAppUpdateStmt, err := tx.Prepare(db.InsertAppUpdateSQL)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	insertAppUpdateStmt, _ := tx.Prepare(db.InsertAppUpdateSQL)
 
 	defer insertAppUpdateStmt.Close()
 
 	nowStr := time.Now().Format("2006-01-02 15:04:05")
 	localFileName := fmt.Sprintf("%s.%s", uuid.NewString(), fileExtensionName)
-	_, err = insertAppUpdateStmt.Exec(
+	insertAppUpdateStmt.Exec(
 		sql.Named("versionName", versionName),
 		sql.Named("versionCode", versionCode),
 		sql.Named("env", env),
@@ -829,37 +895,24 @@ func UpdateApp(ctx *fiber.Ctx) error {
 		sql.Named("appInfoId", appInfoId),
 		sql.Named("fileName", localFileName),
 	)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
 
 	// 然后更新应用信息
-	updateAppInfoStmt, err := tx.Prepare(db.SyncAppInfoVersion)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	updateAppInfoStmt, _ := tx.Prepare(db.SyncAppInfoVersion)
 
 	defer updateAppInfoStmt.Close()
 
-	_, err = updateAppInfoStmt.Exec(
+	updateAppInfoStmt.Exec(
 		sql.Named("versionName", versionName),
 		sql.Named("versionCode", versionCode),
 		sql.Named("env", env),
 		sql.Named("fileSize", appFile.Size),
 		sql.Named("id", appInfoId),
 	)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
 
 	// 最后保存应用文件到本地
-	if err := ctx.SaveFile(appFile, fmt.Sprintf("%s/%s", config.AppFileStorePath, localFileName)); err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	ctx.SaveFile(appFile, fmt.Sprintf("%s/%s", config.GetConfiguration().AppFileStorePath, localFileName))
 
-	if err := tx.Commit(); err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx.Commit()
 
 	return ctx.SendString("上传成功")
 }
@@ -877,17 +930,11 @@ func DownloadApp(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	tx, err := conn.Begin()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx, _ := conn.Begin()
 
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(db.GetAppFileName)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := tx.Prepare(db.GetAppFileName)
 
 	defer stmt.Close()
 
@@ -897,31 +944,19 @@ func DownloadApp(ctx *fiber.Ctx) error {
 	var appInfoId uint32
 	row.Scan(&fileName, &appInfoId)
 
-	err = ctx.Download(fmt.Sprintf("%s/%s", config.AppFileStorePath, fileName))
-
-	if err != nil {
-		return err
-	}
+	ctx.Download(fmt.Sprintf("%s/%s", config.GetConfiguration().AppFileStorePath, fileName))
 
 	// 更新下载次数
-	updateStmt, err := tx.Prepare(db.InsertDownloadRecord)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	updateStmt, _ := tx.Prepare(db.InsertDownloadRecord)
 
 	defer updateStmt.Close()
 
-	_, err = updateStmt.Exec(
+	updateStmt.Exec(
 		sql.Named("appInfoId", appInfoId),
 		sql.Named("createdAt", time.Now().Format("2006-01-02 15:04:05")),
 	)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
 
-	if err := tx.Commit(); err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx.Commit()
 
 	return nil
 }
@@ -950,10 +985,7 @@ func ClientRetrieveAppInfo(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(db.GetAppInfoByPackageInfo)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := conn.Prepare(db.GetAppInfoByPackageInfo)
 
 	defer stmt.Close()
 
@@ -1005,10 +1037,7 @@ func ClientRetrieveAppInfoUniApp(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	stmt, err := conn.Prepare(db.GetAppInfoByUniApp)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := conn.Prepare(db.GetAppInfoByUniApp)
 
 	defer stmt.Close()
 
@@ -1063,17 +1092,11 @@ func ClientCheckUpdate(ctx *fiber.Ctx) error {
 
 	conn := db.GetConnection()
 
-	tx, err := conn.Begin()
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx, _ := conn.Begin()
 
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(db.GetNewerVersion)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	stmt, _ := tx.Prepare(db.GetNewerVersion)
 
 	defer stmt.Close()
 
@@ -1103,30 +1126,19 @@ func ClientCheckUpdate(ctx *fiber.Ctx) error {
 		return ctx.SendString("当前应用暂无新版本")
 	}
 
-	err = ctx.Download(fmt.Sprintf("%s/%s", config.AppFileStorePath, appUpdate.FileName))
-	if err != nil {
-		return err
-	}
+	ctx.Download(fmt.Sprintf("%s/%s", config.GetConfiguration().AppFileStorePath, appUpdate.FileName))
 
 	// 更新下载次数
-	updateStmt, err := tx.Prepare(db.InsertDownloadRecord)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	updateStmt, _ := tx.Prepare(db.InsertDownloadRecord)
 
 	defer updateStmt.Close()
 
-	_, err = updateStmt.Exec(
+	updateStmt.Exec(
 		sql.Named("appInfoId", appInfoId),
 		sql.Named("createdAt", time.Now().Format("2006-01-02 15:04:05")),
 	)
-	if err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
 
-	if err := tx.Commit(); err != nil {
-		return ctx.Status(500).SendString(err.Error())
-	}
+	tx.Commit()
 
 	return nil
 }

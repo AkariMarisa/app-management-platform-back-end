@@ -201,4 +201,39 @@ const (
 		AND VersionCode != :versionCode
 	ORDER BY Id DESC
 	`
+	GetUserByName string = `
+	SELECT
+		Id,
+		Username,
+		Password
+	FROM User
+	WHERE Username = :username
+	ORDER BY Id DESC
+	`
+	UpdateUserPassword string = `
+	UPDATE User SET Password = :password WHERE Id = :id
+	`
+	DeleteUserOldTokens string = `
+	DELETE FROM Token WHERE UserId = :userId
+	`
+	InsertToken string = `
+	INSERT INTO Token (
+		Token,
+		UserId
+	) VALUES (
+		:token,
+		:userId
+	)
+	`
+	GetTokenRecord string = `
+	SELECT Id FROM Token WHERE Token = :token
+	`
+	GetAppFiles string = `
+	SELECT
+		FileName
+	FROM AppUpdate
+	WHERE AppInfoId = :appInfoId
+	`
+	DeleteAppInfoById           string = "DELETE FROM AppInfo WHERE Id = :id"
+	DeleteAppUpdatesByAppInfoId string = "DELETE FROM AppUpdate WHERE AppInfoId = :appInfoId"
 )
