@@ -210,6 +210,15 @@ const (
 	WHERE Username = :username
 	ORDER BY Id DESC
 	`
+	GetUserById string = `
+	SELECT
+		Id,
+		Username,
+		Password
+	FROM User
+	WHERE Id = :id
+	ORDER BY Id DESC
+	`
 	UpdateUserPassword string = `
 	UPDATE User SET Password = :password WHERE Id = :id
 	`

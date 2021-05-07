@@ -5,5 +5,5 @@ compress:
 	upx --ultra-brute bin/main_linux
 	upx --ultra-brute bin/main_win.exe
 package:
-	tar zcvf out/dist_linux.tgz public/ migrations/ -C bin/ main_linux
-	tar zcvf out/dist_win.tgz public/ migrations/ -C bin/ main_win.exe
+	tar zcvf out/dist_linux.tgz public/ migrations/ config.yaml -C bin/ main_linux
+	tar zcvf out/dist_win.tgz public/ migrations/ config.yaml -C bin/ main_win.exe
