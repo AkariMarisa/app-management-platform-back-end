@@ -54,11 +54,11 @@ func Login(ctx *fiber.Ctx) error {
 	row.Scan(&user.Id, &user.Username, &user.Password)
 
 	if user.Id == 0 {
-		return ctx.Status(401).SendString("用户名不存在")
+		return ctx.Status(400).SendString("用户名不存在")
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return ctx.Status(401).SendString("用户名或密码错误")
+		return ctx.Status(400).SendString("用户名或密码错误")
 	}
 
 	// 登陆成功, 生成 Token
@@ -93,6 +93,7 @@ func Login(ctx *fiber.Ctx) error {
 // 修改用户密码
 // 请求参数:
 // userId: 用户ID
+// oldPassword: 原密码
 // newPassword: 新密码
 // reNewPassword: 重复输入的新密码
 func ChangeUserPassword(ctx *fiber.Ctx) error {
@@ -101,6 +102,12 @@ func ChangeUserPassword(ctx *fiber.Ctx) error {
 
 	if strings.TrimSpace(userId) == "" {
 		return ctx.Status(400).SendString("userId不能为空")
+	}
+
+	oldPassword := ctx.Query("oldPassword")
+
+	if strings.TrimSpace(oldPassword) == "" {
+		return ctx.Status(400).SendString("oldPassword不能为空")
 	}
 
 	newPassword := ctx.Query("newPassword")
@@ -119,18 +126,39 @@ func ChangeUserPassword(ctx *fiber.Ctx) error {
 		return ctx.Status(400).SendString("两次密码不一致")
 	}
 
-	// 加密密码
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-
 	conn := db.GetConnection()
 
 	tx, _ := conn.Begin()
 
 	defer tx.Rollback()
 
+	getUserStmt, _ := tx.Prepare(db.GetUserById)
+
+	defer getUserStmt.Close()
+
+	row := getUserStmt.QueryRow(
+		sql.Named("id", userId),
+	)
+
+	user := model.User{}
+	row.Scan(&user.Id, &user.Username, &user.Password)
+
+	if user.Id == 0 {
+		return ctx.Status(400).SendString("用户名不存在")
+	}
+
+	// TODO 这里可以加个限制, 用户原始密码输入错误多少次之后就锁定账户
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+		return ctx.Status(400).SendString("原始密码错误")
+	}
+
 	stmt, _ := tx.Prepare(db.UpdateUserPassword)
 
 	defer stmt.Close()
+
+	// 加密密码
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 
 	stmt.Exec(
 		sql.Named("id", userId),
@@ -417,7 +445,7 @@ func AbandonApp(ctx *fiber.Ctx) error {
 
 	tx.Commit()
 
-	return ctx.SendString("under constructions...")
+	return ctx.SendString("删除成功")
 }
 
 // 根据短URL获取应用信息

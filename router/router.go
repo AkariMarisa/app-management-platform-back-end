@@ -16,12 +16,16 @@ func SetupRoutes(app *fiber.App) {
 
 	// 用户登陆
 	webApi.Post("/login", controller.Login)
+	// 获取系统参数
+	webApi.Get("/systemParam", controller.GetSystemParam)
+	// 根据短URL获取应用信息
+	webApi.Get("/appInfoByUrl", controller.GetAppInfoByUrl)
+	// 下载应用
+	webApi.Get("/appUpdate/file", controller.DownloadApp)
 
 	webProtectApi := webApi.Group("", handler.Protected())
 	// 修改用户密码
 	webProtectApi.Put("/user/password", controller.ChangeUserPassword)
-	// 获取系统参数
-	webProtectApi.Get("/systemParam", controller.GetSystemParam)
 	// 更新系统参数
 	webProtectApi.Put("/systemParam", controller.UpdateSystemParam)
 	// 获取应用信息列表
@@ -30,8 +34,6 @@ func SetupRoutes(app *fiber.App) {
 	webProtectApi.Get("/appInfo", controller.GetAppInfoById)
 	// 删除应用信息及其对应的更新版本
 	webProtectApi.Delete("/appInfo", controller.AbandonApp)
-	// 根据短URL获取应用信息
-	webProtectApi.Get("/appInfoByUrl", controller.GetAppInfoByUrl)
 	// 获取应用更新版本信息列表
 	webProtectApi.Get("/appUpdate/list", controller.GetAppUpdateList)
 	// 获取应用下载次数
@@ -48,8 +50,6 @@ func SetupRoutes(app *fiber.App) {
 	webProtectApi.Post("/appInfo", controller.CreateAppInfo)
 	// 上传应用更新
 	webProtectApi.Post("/appUpdate", controller.UpdateApp)
-	// 下载应用
-	webProtectApi.Get("/appUpdate/file", controller.DownloadApp)
 
 	clientApi := api.Group("/client")
 	// 客户端获取应用信息

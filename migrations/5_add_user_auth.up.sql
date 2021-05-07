@@ -10,3 +10,5 @@ CREATE TABLE Token (
     UserId INTEGER NOT NULL,
     FOREIGN KEY(UserId) REFERENCES User(Id)
 );
+
+INSERT INTO User (Username. Password) VALUES ('admin', '$2a$10$bpTEniHgkMVmTgtlLIwjpucRnCBACWXc94M4X8I2QqWtKUpK/sPgW');
