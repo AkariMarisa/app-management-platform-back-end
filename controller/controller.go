@@ -287,6 +287,7 @@ func GetAppInfoList(ctx *fiber.Ctx) error {
 	`
 	conditionSQL := " WHERE 1=1 "
 	orderSQL := "ORDER BY ai.Id DESC "
+	limitSQL := "LIMIT 50 "
 
 	var params []interface{}
 
@@ -304,9 +305,16 @@ func GetAppInfoList(ctx *fiber.Ctx) error {
 		}
 	}
 
+	if lastId := ctx.Query("lastId"); strings.TrimSpace(lastId) != "" {
+		conditionSQL += "AND ai.Id < :lastId "
+		params = append(params, sql.Named("lastId", lastId))
+	} else {
+		conditionSQL += "AND ai.Id > 0 "
+	}
+
 	conn := db.GetConnection()
 
-	stmt, _ := conn.Prepare(querySQL + conditionSQL + orderSQL)
+	stmt, _ := conn.Prepare(querySQL + conditionSQL + orderSQL + limitSQL)
 
 	defer stmt.Close()
 
@@ -508,13 +516,28 @@ func GetAppUpdateList(ctx *fiber.Ctx) error {
 		return ctx.Status(400).SendString("appInfoId不能为空")
 	}
 
+	var params []interface{}
+	params = append(params, sql.Named("appInfoId", appInfoId))
+
+	conditionSQL := ""
+
+	if lastId := ctx.Query("lastId"); strings.TrimSpace(lastId) != "" {
+		conditionSQL += "AND Id < :lastId "
+		params = append(params, sql.Named("lastId", lastId))
+	} else {
+		conditionSQL += "AND Id > 0 "
+	}
+
+	var querySQL string = db.GetAppUpdates
+	querySQL = strings.ReplaceAll(querySQL, "#{conditions}", conditionSQL)
+
 	conn := db.GetConnection()
 
-	stmt, _ := conn.Prepare(db.GetAppUpdates)
+	stmt, _ := conn.Prepare(querySQL)
 
 	defer stmt.Close()
 
-	rows, _ := stmt.Query(sql.Named("appInfoId", appInfoId))
+	rows, _ := stmt.Query(params...)
 
 	defer rows.Close()
 

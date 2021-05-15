@@ -98,8 +98,9 @@ const (
 		FileSize,
 		CreatedAt
 	FROM AppUpdate au
-	WHERE AppInfoId = :appInfoId
+	WHERE AppInfoId = :appInfoId #{conditions}
 	ORDER BY Id DESC
+	LIMIT 50
 	`
 	GetDownloadCounts    string = "SELECT count(*) FROM DownloadRecord "
 	InsertDownloadRecord string = `
