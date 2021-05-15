@@ -101,9 +101,8 @@ const (
 	WHERE AppInfoId = :appInfoId
 	ORDER BY Id DESC
 	`
-	GetDownloadCounts      string = "SELECT count(*) FROM DownloadRecord "
-	GetDownloadCountsByApp string = "SELECT count(*) FROM DownloadRecord WHERE AppInfoId = :appInfoId "
-	InsertDownloadRecord   string = `
+	GetDownloadCounts    string = "SELECT count(*) FROM DownloadRecord "
+	InsertDownloadRecord string = `
 	INSERT INTO DownloadRecord (
 		AppInfoId,
 		CreatedAt

@@ -548,16 +548,28 @@ func GetAppDownloadCount(ctx *fiber.Ctx) error {
 
 	appInfoId := ctx.Query("appInfoId")
 
+	currentDate := ctx.Query("currentDate")
+
 	querySQL := db.GetDownloadCounts
 
 	var params []interface{}
+	var conditions []string
 
 	if strings.TrimSpace(appInfoId) != "" {
-		querySQL = db.GetDownloadCountsByApp
+		conditions = append(conditions, "AppInfoId = :appInfoId")
 		params = append(params, sql.Named("appInfoId", appInfoId))
 	}
 
+	if strings.TrimSpace(currentDate) != "" {
+		conditions = append(conditions, "CreatedAt LIKE :currentDate")
+		params = append(params, sql.Named("currentDate", currentDate+"%"))
+	}
+
 	conn := db.GetConnection()
+
+	if len(conditions) > 0 {
+		querySQL += "WHERE " + strings.Join(conditions, " AND ")
+	}
 
 	stmt, _ := conn.Prepare(querySQL)
 
