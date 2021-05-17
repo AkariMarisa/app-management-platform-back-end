@@ -1,5 +1,7 @@
 # 应用分发平台后端
 
+#### 请先访问主仓库[https://github.com/AkariMarisa/app-management-platform](https://github.com/AkariMarisa/app-management-platform)
+
 ## 项目开发环境
 go: 1.16
 make: 4.3
