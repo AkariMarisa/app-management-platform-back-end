@@ -4,6 +4,7 @@ app.db
 bin/**
 out/**
 public/**
+vendor/
 
 !bin/.gitkeep
 !out/.gitkeep
